@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+
+    <title>MobX Core infrastructure</title>
+
+    <link rel="stylesheet" href="dist/reset.css" />
+    <link rel="stylesheet" href="dist/reveal.css" />
+    <link rel="stylesheet" href="dist/theme/black.css" />
+
+    <!-- Theme used for syntax highlighted code -->
+    <link rel="stylesheet" href="plugin/highlight/monokai.css" />
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section>
+          <h2>Atom</h2>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="|1|2-4|7,11|5-8|9-10|11-12|13-14">
+				<script type="text/template">
+					import { createAtom } from 'mobx';
+					const atom = createAtom('myAtom',
+						() => console.log('Enter reactive context'),
+						() => console.log('Exit reactive context'));
+					const cancel = autorun(() => {
+						console.log('RUN');
+						atom.reportObserved();
+					}); // for react: observer(() => { atom.reportObserved()})
+					// RUN
+					// Enter reactive context
+					atom.reportChanged();
+					// RUN
+					cancel();
+					// Exit reactive context
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section>
+          <h2>Reactive value</h2>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="|1|2-4|7,11|5-8|9-10|11-12|13-14">
+				<script type="text/template">
+					import { observable, runInAction } from 'mobx';
+					const $value = observable.box(0);
+					const cancel = autorun(() =>
+						console.log('Value:', $value.get())
+					); // for react: observer(() => { $value.get() })
+					// Value: 0
+					runInAction(() => $value.set(1)); // like atom.reportChanged();
+					// Value: 1
+					cancel();
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section>
+          <h2>Subscriber</h2>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="|2|3|4|5|6|9|10">
+				<script type="text/template">
+				const s = new Subscriber({
+					getId: () => getReactiveElement(),
+					subscribe: (el, push) => {
+						const cb = (e) => { push(e.data);}
+						el.addEventListener('message', cb);
+						return () => el.removeEventListener('message', cb);
+					}
+				});
+				autorun(() => { console.log(s.data); });
+				const Component = observer(({ s }) => <p>{s.data}</p>);
+				</script>
+			</code>
+		  </pre>
+        </section>
+
+        <section>
+          <h2>Subscriber usage</h2>
+          <pre data-id="code-animation">
+          <code class="hljs javascript jsx" data-trim data-line-numbers>
+            <script type="text/template">
+              import { Subscriber } from '@writercolab/mobx';
+            </script>
+          </code>
+		  </pre>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="|1-2|4|5|7|8-10">
+				<script type="text/template">
+				const s1: Subscriber<string> = new Subscriber(/* ... */);
+				const s2: Subscriber<number> = new Subscriber(/* ... */);
+
+				console.log("S1", s1.data);
+				// S1 undefined (because s1 is out of reactive context)
+
+				autorun(() => console.log('S2', s2.data)); // the same as observer for react
+				// S2 undefined (data loading)
+				// S2 [content1] (first data received)
+				// S2 [content2] (second data received)
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section>
+          <h2>PromisedModel</h2>
+          <pre data-id="code-animation">
+          <code class="hljs javascript jsx" data-trim data-line-numbers>
+            <script type="text/template">
+              import { PromisedModel } from '@writercolab/mobx';
+            </script>
+          </code>
+		  </pre>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="">
+				<script type="text/template">
+					const model = new PromisedModel(async () => {
+						const data = await fetch('/api/data')
+							.then(r => r.json());
+						return data;
+					});
+					console.log('Data outside context:', model.data);
+					// Data: undefined (because model is out of reactive context)
+
+					autorun(() => console.log('Data:', model.data));
+					// Data: undefined (data loading)
+					// Data: [data] (data received)
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section data-markdown>
+          <script type="text/template">
+            ## PromisedModel Pros
+
+            - allows you to work with async data
+            - has error handling 'model.valueWithError'
+            - has loading state 'model.status' ['pending', 'fulfilled', 'rejected']
+            - to check the loading state, just write 'model.status === 'pending''
+            - has internal mechanism for throttling, expiring, waiting conditions // see docs
+          </script>
+        </section>
+
+        <section data-markdown>
+          <script type="text/template">
+            ## PromisedModel Cons
+
+            - should only be used inside a reactive context
+            - can only refetch data, can't mutate it in other ways
+          </script>
+        </section>
+
+        <section>
+          <h2>PaginatedModel</h2>
+          <pre data-id="code-animation">
+          <code class="hljs javascript jsx" data-trim data-line-numbers>
+            <script type="text/template">
+              import { PaginatedModel } from '@writercolab/mobx';
+            </script>
+          </code>
+		  </pre>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="">
+				<script type="text/template">
+					const model = PaginatedModel.buildSchema({
+    					argsDefault: { offset: 0, limit: 10 },
+    					argsExtra: { sort: 'asc' },
+    					load: async ({ args, extra }) => {
+      						return api.loadItems(args.offset, args.limit, extra);
+    					},
+  					});
+					autorun(() => console.log('Data:', model.data));
+					// DATA: undefined (data loading)
+					// DATA: [0, 1] (data received)
+					model.next();
+					// DATA: [0, 1, 2, 3] (aggregated data from 2 requests)
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section data-markdown>
+          <script type="text/template">
+            ## PaginatedModel Pros/Cons
+
+            - this abstraction is like PromisedModel, but for a list of items
+            - we can use it for data aggregation, like in infinite scroll
+            - or for loading data ranges, like in a table with pagination
+          </script>
+        </section>
+
+        <section>
+          <h2>MutatePaginatedModel</h2>
+          <pre data-id="code-animation">
+          <code class="hljs javascript jsx" data-trim data-line-numbers>
+            <script type="text/template">
+              import { MutatePaginatedModel } from '@writercolab/mobx';
+            </script>
+          </code>
+		  </pre>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="|3|5|6|7-13|">
+				<script type="text/template">
+					const model = MutatePaginatedModel.buildSchema({
+						// ... the same props as PaginatedModel
+						getHash: (item) => item.id // for correct item identification
+					});
+					const item = model.value[0]; // get any item
+					// Optimistic update, without synchronization with the server
+					// Update an item
+					const undoUpdate = model.mutate(item, 'update', newItem);
+ 					// Delete an item
+					const undoDelete = model.mutate(item, 'delete');
+ 					// Insert an item after another
+					// insertAfter, insertBefore, append, before
+					const undoInsert = model.mutate(item, 'insertAfter', newItem);
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section data-markdown>
+          <script type="text/template">
+            ## MutatePaginatedModel
+
+            - The same as PaginatedModel, but with the ability to mutate items.
+            - The mutation API is quite low-level and is useful for integration with high-level abstractions like 'EntityFactory'.
+          </script>
+        </section>
+
+        <section>
+          <h2>EntityFactory definition</h2>
+          <pre data-id="code-animation">
+          <code class="hljs javascript jsx" data-trim data-line-numbers>
+            <script type="text/template">
+              import { EntityFactory } from '@writercolab/mobx';
+            </script>
+          </code>
+		  </pre>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="|1|2|3|4|5-7|8|">
+				<script type="text/template">
+				const entity = new EntityFactory<number, User>({
+					getHash: data => data.id,
+					load: async id => loadUser(id),
+					update: async data => updateUser(data),
+					delete: async id => deleteUser(id),
+					// list: () => loadAllUsers(),
+					// integration with mutate API for optimistic updates
+					list: MutatePaginatedModel.buildSchema(...),
+				});
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section>
+          <h2>EntityFactory usage</h2>
+          <pre data-id="code-animation">
+			<code class="hljs javascript jsx" data-trim data-line-numbers="|1-2|3-4|5-9|10-11|12-13|">
+				<script type="text/template">
+				// Get a user by ID (creates a FieldModel if not exists)
+				const userField: FieldModel<User> = entity.get(1);
+				// Access the user data
+				console.log(userField.value); // User | undefined
+				// Create a new user
+				const newUser = await entity.create({
+					name: 'John Doe',
+					email: 'john@example.com',
+				});
+				// Delete a user
+				await entity.delete(1);
+				// Get all users (if list is configured)
+				const allUsers = entity.list;
+				</script>
+			</code>
+			</pre>
+        </section>
+
+        <section data-markdown>
+          <script type="text/template">
+            ## EntityFactory
+
+            ### Cons
+
+            - allows synchronization with the server using CRUD operations
+            - for entity uses FieldModel, which is a wrapper for a single value
+            - has deep integration with MutatePaginatedModel for optimistic updates
+
+            ### Pros
+
+            - fresh code, probably needs to add some functionality
+          </script>
+        </section>
+
+        <section>
+          <h2>FieldModel & FormModel</h2>
+          <pre data-id="code-animation">
+			  <code class="hljs typescript jsx" data-trim="" data-line-numbers="|1|2-3|4-7|8-10|11|">
+				  <script type="text/template">
+					FormModel.build(({ field, fieldAsync, fieldList, form }) => ({
+						fullname: field({ init: '',
+							validation: value => (!value?.length ? 'Fullname is required' : undefined) }),
+						phone: fieldAsync<number, string>({ init: () => $phone.value
+							set: (v, cb) => {
+							  const num = parseInt(v, 10);
+							  cb(Number.isNaN(num) ? 'Invalid phone number' : undefined, num);}}),
+						gender: fieldList({ init: '',
+							loadSync: () => // or async load() { return ... }
+								([{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }]) })}
+						nest: form({ option: field({ init: '' }) })
+					));
+				  </script>
+			  </code>
+			  </pre>
+        </section>
+        <section>
+          <h2>Example of FormModel usage with wds-fields</h2>
+
+          <ul>
+            <li>
+              <a
+                target="_blank"
+                href="https://automatic-adventure-z4q3q18.pages.github.io/pull/1306/iframe.html?globals=&args=&id=wds-fields--example&viewMode=story"
+                >Demo</a
+              >
+            </li>
+            <li>
+              <a
+                target="_blank"
+                href="https://github.com/WriterColab/fe.core/blob/master/packages/wds-fields/src/lib/__mock__/Form.mock.tsx"
+                >Source</a
+              >
+            </li>
+          </ul>
+        </section>
+      </div>
+    </div>
+
+    <script src="dist/reveal.js"></script>
+    <script src="plugin/zoom/zoom.js"></script>
+    <script src="plugin/notes/notes.js"></script>
+    <script src="plugin/search/search.js"></script>
+    <script src="plugin/markdown/markdown.js"></script>
+    <script src="plugin/highlight/highlight.js"></script>
+    <script>
+      // Also available as an ES module, see:
+      // https://revealjs.com/initialization/
+      Reveal.initialize({
+        controls: true,
+        progress: true,
+        center: true,
+        hash: true,
+
+        // Learn about plugins: https://revealjs.com/plugins/
+        plugins: [
+          RevealZoom,
+          RevealNotes,
+          RevealSearch,
+          RevealMarkdown,
+          RevealHighlight,
+        ],
+      });
+    </script>
+  </body>
+</html>
